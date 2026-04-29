@@ -15,7 +15,7 @@ public class HydrodynamicsManagerGPU : MonoBehaviour
         public float   pressure;      //  4 bytes
     }
 
-    [SerializeField] private int           particleCount  = 20000;
+    [SerializeField] private int           particleCount  = 12000;
     [SerializeField] private ComputeShader computeShader;
     [SerializeField] private Material      particleMaterial;
 
@@ -26,7 +26,7 @@ public class HydrodynamicsManagerGPU : MonoBehaviour
     [Header("SPH Settings")]
     [SerializeField] private float restDensity     = 2.5f;
     [SerializeField] private float gasConstant     = 50f;
-    [SerializeField] private float viscosity       = 0.3f;
+    [SerializeField] private float viscosity       = 0.8f;
     [SerializeField] private float smoothingRadius = 0.3f;
     [SerializeField] private float particleMass    = 0.02f;
 
@@ -71,7 +71,7 @@ public class HydrodynamicsManagerGPU : MonoBehaviour
         // --- Step C: Spawn particles in a grid and upload to GPU ---
         GPUParticle[] initial = new GPUParticle[particleCount];
         int   gridSize = Mathf.CeilToInt(Mathf.Pow(particleCount, 1f / 3f));
-        float spacing  = smoothingRadius * 0.5f;
+        float spacing  = smoothingRadius * 0.65f;
         int   idx      = 0;
 
         for (int x = 0; x < gridSize && idx < particleCount; x++)

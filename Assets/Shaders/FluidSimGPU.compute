@@ -96,9 +96,9 @@ void CalculateDensities(uint3 id : SV_DispatchThreadID)
     // Clamp to avoid division by zero in force pass
     particles[id.x].density  = max(density, restDensity * 0.5);
 
-    // Tait equation — same as baseline but now numerically stable
+    // Tait equation — clamp to zero so sparse regions don't create tension (attraction)
     float densityRatio        = particles[id.x].density / restDensity;
-    particles[id.x].pressure  = gasConstant * (pow(densityRatio, 7.0) - 1.0);
+    particles[id.x].pressure  = max(0.0, gasConstant * (pow(densityRatio, 7.0) - 1.0));
 }
 
 // -----------------------------------------------------------------------
@@ -136,7 +136,7 @@ void CalculateForces(uint3 id : SV_DispatchThreadID)
                     pressureI / (densityI * densityI) +
                     pressureJ / (densityJ * densityJ)
                 );
-                pressureForce += -densityJ * pTerm * SpikyGradient(rij, smoothingRadius);
+                pressureForce += pTerm * SpikyGradient(rij, smoothingRadius);
             }
 
             // Viscosity force
@@ -160,6 +160,8 @@ void Integrate(uint3 id : SV_DispatchThreadID)
 
     float3 vel = particles[id.x].velocity + particles[id.x].acceleration * deltaTime;
     vel       *= 0.999;   // tiny damping — same as baseline
+    float spd  = length(vel);
+    if (spd > 30.0) vel *= 30.0 / spd;
     float3 pos = particles[id.x].position + vel * deltaTime;
 
     // AABB boundary — clamp and reflect
