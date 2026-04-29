@@ -1,0 +1,177 @@
+#pragma kernel PredictPositions
+#pragma kernel CalculateDensities
+#pragma kernel CalculateForces
+#pragma kernel Integrate
+
+// -----------------------------------------------------------------------
+// Particle struct — must match GPUParticle in HydrodynamicsManagerGPU.cs
+// Layout: 3+3+3 floats (pos/vel/accel) + 2 floats (density/pressure) = 44 bytes
+// -----------------------------------------------------------------------
+struct Particle
+{
+    float3 position;
+    float3 velocity;
+    float3 acceleration;
+    float  density;
+    float  pressure;
+};
+
+RWStructuredBuffer<Particle> particles;
+RWStructuredBuffer<float3>   predictedPositions;
+
+// Simulation parameters (set from C# each frame)
+uint  particleCount;
+float smoothingRadius;
+float restDensity;
+float gasConstant;
+float viscosityCoeff;
+float particleMass;
+float deltaTime;
+float bounce;
+float3 boundsMin;
+float3 boundsMax;
+
+static const float PI = 3.14159265358979;
+
+// -----------------------------------------------------------------------
+// SPH Kernel functions (3D — ported directly from Kernels.cs)
+// -----------------------------------------------------------------------
+
+float Poly6(float r2, float h)
+{
+    float h2 = h * h;
+    if (r2 >= h2) return 0.0;
+    float term  = h2 - r2;
+    float coeff = 315.0 / (64.0 * PI * pow(h, 9.0));
+    return coeff * term * term * term;
+}
+
+float3 SpikyGradient(float3 r_vec, float h)
+{
+    float r = length(r_vec);
+    if (r <= 0.0001 || r >= h) return float3(0, 0, 0);
+    float coeff = -45.0 / (PI * pow(h, 6.0));
+    return coeff * (h - r) * (h - r) * (r_vec / r);
+}
+
+float ViscosityLaplacian(float r, float h)
+{
+    if (r >= h) return 0.0;
+    return (45.0 / (PI * pow(h, 6.0))) * (h - r);
+}
+
+// -----------------------------------------------------------------------
+// Kernel 1 — Predict positions one timestep ahead (stability improvement
+// over baseline: forces use predicted positions, not stale current ones)
+// -----------------------------------------------------------------------
+[numthreads(256, 1, 1)]
+void PredictPositions(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= particleCount) return;
+    predictedPositions[id.x] = particles[id.x].position
+                              + particles[id.x].velocity * deltaTime;
+}
+
+// -----------------------------------------------------------------------
+// Kernel 2 — Compute density and pressure for every particle
+// Uses predicted positions for stability
+// -----------------------------------------------------------------------
+[numthreads(256, 1, 1)]
+void CalculateDensities(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= particleCount) return;
+
+    float3 pos  = predictedPositions[id.x];
+    float  h2   = smoothingRadius * smoothingRadius;
+    float  density = 0.0;
+
+    for (uint j = 0; j < particleCount; j++)
+    {
+        float3 rij = predictedPositions[j] - pos;
+        float  r2  = dot(rij, rij);
+        if (r2 < h2)
+            density += particleMass * Poly6(r2, smoothingRadius);
+    }
+
+    // Clamp to avoid division by zero in force pass
+    particles[id.x].density  = max(density, restDensity * 0.5);
+
+    // Tait equation — same as baseline but now numerically stable
+    float densityRatio        = particles[id.x].density / restDensity;
+    particles[id.x].pressure  = gasConstant * (pow(densityRatio, 7.0) - 1.0);
+}
+
+// -----------------------------------------------------------------------
+// Kernel 3 — Compute pressure + viscosity forces
+// -----------------------------------------------------------------------
+[numthreads(256, 1, 1)]
+void CalculateForces(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= particleCount) return;
+
+    float3 pos       = predictedPositions[id.x];
+    float  densityI  = particles[id.x].density;
+    float  pressureI = particles[id.x].pressure;
+
+    float3 pressureForce = float3(0, 0, 0);
+    float3 viscForce     = float3(0, 0, 0);
+
+    for (uint j = 0; j < particleCount; j++)
+    {
+        if (j == id.x) continue;
+
+        float3 rij = predictedPositions[j] - pos;
+        float  r2  = dot(rij, rij);
+        float  r   = sqrt(r2);
+
+        if (r < smoothingRadius && r > 0.0001)
+        {
+            float densityJ  = particles[j].density;
+            float pressureJ = particles[j].pressure;
+
+            // Symmetric pressure force (Müller 2003)
+            if (densityI > 0.001 && densityJ > 0.001)
+            {
+                float pTerm = particleMass * (
+                    pressureI / (densityI * densityI) +
+                    pressureJ / (densityJ * densityJ)
+                );
+                pressureForce += -densityJ * pTerm * SpikyGradient(rij, smoothingRadius);
+            }
+
+            // Viscosity force
+            float3 velDiff = particles[j].velocity - particles[id.x].velocity;
+            viscForce += (velDiff / densityJ)
+                       * (particleMass * viscosityCoeff * ViscosityLaplacian(r, smoothingRadius));
+        }
+    }
+
+    float3 gravity = float3(0, -9.81, 0);
+    particles[id.x].acceleration = (pressureForce + viscForce) / densityI + gravity;
+}
+
+// -----------------------------------------------------------------------
+// Kernel 4 — Integrate velocity + position, resolve AABB boundaries
+// -----------------------------------------------------------------------
+[numthreads(256, 1, 1)]
+void Integrate(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= particleCount) return;
+
+    float3 vel = particles[id.x].velocity + particles[id.x].acceleration * deltaTime;
+    vel       *= 0.999;   // tiny damping — same as baseline
+    float3 pos = particles[id.x].position + vel * deltaTime;
+
+    // AABB boundary — clamp and reflect
+    if (pos.x < boundsMin.x) { pos.x = boundsMin.x; vel.x *= -bounce; }
+    else if (pos.x > boundsMax.x) { pos.x = boundsMax.x; vel.x *= -bounce; }
+
+    if (pos.y < boundsMin.y) { pos.y = boundsMin.y; vel.y *= -bounce; }
+    else if (pos.y > boundsMax.y) { pos.y = boundsMax.y; vel.y *= -bounce; }
+
+    if (pos.z < boundsMin.z) { pos.z = boundsMin.z; vel.z *= -bounce; }
+    else if (pos.z > boundsMax.z) { pos.z = boundsMax.z; vel.z *= -bounce; }
+
+    particles[id.x].velocity = vel;
+    particles[id.x].position = pos;
+}
