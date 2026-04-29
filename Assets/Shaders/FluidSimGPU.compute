@@ -28,6 +28,8 @@ float viscosityCoeff;
 float particleMass;
 float deltaTime;
 float bounce;
+float separationStiffness;
+float xsphCoeff;
 float3 boundsMin;
 float3 boundsMax;
 
@@ -143,11 +145,22 @@ void CalculateForces(uint3 id : SV_DispatchThreadID)
             float3 velDiff = particles[j].velocity - particles[id.x].velocity;
             viscForce += (velDiff / densityJ)
                        * (particleMass * viscosityCoeff * ViscosityLaplacian(r, smoothingRadius));
+
+            // Contact spring: short-range repulsion that activates before density pressure
+            // can build up, preventing particles from penetrating each other
+            float nearRadius = smoothingRadius * 0.35;
+            if (r < nearRadius)
+            {
+                float s = 1.0 - r / nearRadius;
+                pressureForce += separationStiffness * s * s * (-rij / r);
+            }
         }
     }
 
     float3 gravity = float3(0, -9.81, 0);
-    particles[id.x].acceleration = (pressureForce + viscForce) / densityI + gravity;
+    // pressure acceleration already encodes 1/ρ² via (p_i/ρ_i² + p_j/ρ_j²) — no extra /densityI
+    // viscosity acceleration needs /densityI to satisfy (μ/ρ)∇²v
+    particles[id.x].acceleration = pressureForce + viscForce / densityI + gravity;
 }
 
 // -----------------------------------------------------------------------
@@ -158,11 +171,34 @@ void Integrate(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= particleCount) return;
 
-    float3 vel = particles[id.x].velocity + particles[id.x].acceleration * deltaTime;
-    vel       *= 0.999;   // tiny damping — same as baseline
-    float spd  = length(vel);
-    if (spd > 30.0) vel *= 30.0 / spd;
-    float3 pos = particles[id.x].position + vel * deltaTime;
+    float3 velOld = particles[id.x].velocity;
+    float3 vel    = velOld + particles[id.x].acceleration * deltaTime;
+    vel          *= 0.999;
+    float spd     = length(vel);
+    if (spd > 100.0) vel *= 100.0 / spd;
+
+    // XSPH correction: blends each particle's velocity with its neighbours'.
+    // Particles rushing into a dense region get slowed by those around them;
+    // gaps close naturally. Reads pre-dispatch velocities (particles[j].velocity
+    // where j != id.x) — no race condition since this kernel only writes [id.x].
+    float3 xsphCorr = float3(0, 0, 0);
+    float3 posI     = particles[id.x].position;
+    float  h2       = smoothingRadius * smoothingRadius;
+    for (uint j = 0; j < particleCount; j++)
+    {
+        if (j == id.x) continue;
+        float3 rij = particles[j].position - posI;
+        float  r2  = dot(rij, rij);
+        if (r2 < h2)
+        {
+            float densJ = max(particles[j].density, 0.001);
+            xsphCorr += (particleMass / densJ) * (particles[j].velocity - velOld)
+                      * Poly6(r2, smoothingRadius);
+        }
+    }
+    vel += xsphCoeff * xsphCorr;
+
+    float3 pos = posI + vel * deltaTime;
 
     // AABB boundary — clamp and reflect
     if (pos.x < boundsMin.x) { pos.x = boundsMin.x; vel.x *= -bounce; }

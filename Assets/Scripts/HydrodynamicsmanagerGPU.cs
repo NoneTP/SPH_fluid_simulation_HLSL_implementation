@@ -24,11 +24,13 @@ public class HydrodynamicsManagerGPU : MonoBehaviour
     [SerializeField] private float   bounce       = 0.5f;
 
     [Header("SPH Settings")]
-    [SerializeField] private float restDensity     = 2.5f;
-    [SerializeField] private float gasConstant     = 50f;
-    [SerializeField] private float viscosity       = 0.8f;
-    [SerializeField] private float smoothingRadius = 0.3f;
-    [SerializeField] private float particleMass    = 0.02f;
+    [SerializeField] private float restDensity          = 2.5f;
+    [SerializeField] private float gasConstant          = 20f;
+    [SerializeField] private float viscosity            = 0.8f;
+    [SerializeField] private float smoothingRadius      = 0.3f;
+    [SerializeField] private float particleMass         = 0.02f;
+    [SerializeField] private float separationStiffness  = 500f;
+    [SerializeField] private float xsphCoeff            = 0.05f;
 
     [Header("Stability — proposed improvements over baseline")]
     [SerializeField] private float fixedDt  = 1f / 120f;
@@ -145,7 +147,9 @@ public class HydrodynamicsManagerGPU : MonoBehaviour
         computeShader.SetFloat( "gasConstant",     gasConstant);
         computeShader.SetFloat( "viscosityCoeff",  viscosity);
         computeShader.SetFloat( "particleMass",    particleMass);
-        computeShader.SetFloat( "bounce",          bounce);
+        computeShader.SetFloat( "bounce",               bounce);
+        computeShader.SetFloat( "separationStiffness", separationStiffness);
+        computeShader.SetFloat( "xsphCoeff",           xsphCoeff);
         computeShader.SetVector("boundsMin", boundsCenter - boundsSize * 0.5f);
         computeShader.SetVector("boundsMax", boundsCenter + boundsSize * 0.5f);
 
