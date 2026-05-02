@@ -129,6 +129,7 @@ GameObject:
   m_Component:
   - component: {fileID: 240626350}
   - component: {fileID: 240626349}
+  - component: {fileID: 240626351}
   m_Layer: 0
   m_Name: HydrodynamicsManagerGPU
   m_TagString: Untagged
@@ -154,15 +155,18 @@ MonoBehaviour:
   boundsCenter: {x: 0, y: 0, z: 0}
   boundsSize: {x: 10, y: 10, z: 10}
   bounce: 0.5
-  restDensity: 2.5
-  gasConstant: 50
+  spacingMultiplier: 0.65
+  restDensity: 5.5
+  gasConstant: 20
   viscosity: 0.3
   smoothingRadius: 0.3
   particleMass: 0.02
-  fixedDt: 0.008333334
-  substeps: 3
+  separationStiffness: 500
+  xsphCoeff: 0.01
+  fixedDt: 0.016666668
+  substeps: 5
   maxSpeed: 100
-  particleSize: 0.2
+  particleSize: 0.1
 --- !u!4 &240626350
 Transform:
   m_ObjectHideFlags: 0
@@ -178,6 +182,21 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &240626351
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 240626348}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9ce813096615ed548a545653c07f003c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::BenchmarkLogger
+  runLabel: GPU_20k
+  duration: 10
+  sampleRate: 0.1
 --- !u!1 &330585543
 GameObject:
   m_ObjectHideFlags: 0
