@@ -10,8 +10,7 @@ A real-time 3D fluid simulation built in Unity 6 using HLSL compute shaders, imp
 
 ## Demo
 
-> *(Add a GIF or screenshot of the simulation here)*
-
+https://youtu.be/YEzDSzDxI_Q
 ---
 
 ## Problem
