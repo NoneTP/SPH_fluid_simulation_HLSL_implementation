@@ -72,7 +72,7 @@ Tested on Intel Core Ultra 5 225H (integrated GPU, shared DDR5 memory):
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/NoneTP/gpu-sph-fluid-simulation.git
+   git clone https://github.com/NoneTP/SPH_fluid_simulation_HLSL_implementation.git
    ```
 
 2. Open the project in Unity Hub → select `FluidSim3D` folder
@@ -123,7 +123,7 @@ Assets/
 experiments/
 └── results/                          ← Benchmark CSV output
 
-report/
+final_report/
 └── final_report.docx                 ← Project report
 ```
 
